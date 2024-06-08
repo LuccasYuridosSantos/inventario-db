@@ -30,12 +30,6 @@ Execute a aplicação:
 python app.py
 ```
 
-## Endpoints
-
-Aqui está uma versão simplificada do README, destacando os endpoints da API com exemplos de uso:
-
-## API de Gerenciamento de Funcionários e Ativos
-
 ### Endpoints
 
 #### Adicionar Funcionário
