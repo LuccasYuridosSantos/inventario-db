@@ -30,6 +30,15 @@ Execute a aplicação:
 python app.py
 ```
 
+# Preparando Banco
+
+1- Caso não possua o mongodb instalado, pode se utilizar docker para gerar uma instância:
+
+ **Run Docker Compose:**  
+ ```bash
+ docker compose up
+ ```
+
 ### Endpoints
 
 #### Adicionar Funcionário
