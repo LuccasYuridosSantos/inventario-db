@@ -1,107 +1,68 @@
-from flask import Flask, request, jsonify
-from pymongo import MongoClient
-import os
+from http import HTTPStatus
+
+from flask import jsonify, request, Flask
+
+from constants import EMPLOYEE_EXISTS, EMPLOYEE_ADDED, EMPLOYEE_NOT_FOUND, NO_UPDATE_DATA, EMPLOYEE_UPDATED, \
+    ASSET_REMOVED, EMPLOYEE_HAS_ASSETS, EMPLOYEE_DELETED
+from funcionario import EmployeeBuilder, EmployeeService
+from mongo_connection import mongo_connection
+from validate import validate_data, validate_asset, VALID_ASSETS
 
 app = Flask(__name__)
 
-MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
-client = MongoClient(MONGO_URI)
-db = client['inventario_db']
-collection = db['funcionarios']
-
+collection = mongo_connection()
+builder = EmployeeBuilder()
+service = EmployeeService(collection, builder)
 
 def create_response(message, status):
     return jsonify({'message': message}), status
 
 
-def validate_data(data, required_fields):
-    if not data:
-        return 'Nenhum dado enviado!', 400
-    for field in required_fields:
-        if not data.get(field):
-            return f'{field} é obrigatório!', 400
-    return None, None
-
-def validate_asset(asset):
-    valid_assets = [
-        "notebook", "monitor1", "monitor2", "teclado", "mouse", "nobreak",
-        "desktop", "headset", "celular", "acessorios"
-    ]
-    if asset not in valid_assets:
-        return create_response('Ativo inválido!', 400)
-    return None
-
-
-@app.route('/api/funcionarios', methods=['POST'])
-def add_funcionario():
+@app.post('/api/funcionarios')
+def insert_employee():
     data = request.get_json()
     error, status = validate_data(data, ['cpf', 'nome'])
+
     if error:
         return create_response(error, status)
 
     cpf = data['cpf']
     if collection.find_one({'cpf': cpf}):
-        return create_response('Funcionário com este CPF já existe!', 400)
+        return create_response(EMPLOYEE_EXISTS, HTTPStatus.BAD_REQUEST)
 
-    novo_funcionario = {
-        "cpf": cpf,
-        "nome": data['nome'],
-        "notebook": {
-            "modelo": data.get('notebook_modelo'),
-            "tag": data.get('notebook_tag'),
-            "versao": data.get('notebook_versao'),
-            "caracteristicas": data.get('notebook_caracteristicas')
-        },
-        "monitor1": {"modelo": data.get('monitor1_modelo')},
-        "monitor2": {"modelo": data.get('monitor2_modelo')},
-        "teclado": {"modelo": data.get('teclado_modelo')},
-        "mouse": {"modelo": data.get('mouse_modelo')},
-        "nobreak": {"modelo": data.get('nobreak_modelo')},
-        "desktop": {
-            "modelo": data.get('desktop_modelo'),
-            "tag": data.get('desktop_tag'),
-            "versao": data.get('desktop_versao'),
-            "caracteristicas": data.get('desktop_caracteristicas')
-        },
-        "headset": {"modelo": data.get('headset_modelo')},
-        "celular": {
-            "modelo": data.get('celular_modelo'),
-            "numero": data.get('celular_numero')
-        },
-        "acessorios": data.get('acessorios')
-    }
-    collection.insert_one(novo_funcionario)
-    return create_response('Funcionário adicionado com sucesso!', 201)
+    new_employee = service.create_employee(data)
+    collection.insert_one(new_employee)
+    return create_response(EMPLOYEE_ADDED, HTTPStatus.CREATED)
 
 
-@app.route('/api/funcionarios', methods=['GET'])
-def get_funcionarios():
-    funcionarios = list(collection.find({}, {'_id': 0}))
-    return jsonify(funcionarios)
+@app.get('/api/funcionarios')
+def find_all():
+    employee = list(collection.find({}, {'_id': 0}))
+    return jsonify(employee)
 
 
-@app.route('/api/funcionarios/<cpf>', methods=['GET'])
-def get_funcionario(cpf):
-    funcionario = collection.find_one({'cpf': cpf}, {'_id': 0})
-    if funcionario:
-        return jsonify(funcionario)
-    return create_response('Funcionário não encontrado!', 404)
+@app.get('/api/funcionarios/<cpf>')
+def find_employ_by_cpf(cpf):
+    employee = collection.find_one({'cpf': cpf}, {'_id': 0})
+    if employee:
+        return jsonify(employee)
+    return create_response(EMPLOYEE_NOT_FOUND, HTTPStatus.NOT_FOUND)
 
 
-@app.route('/api/funcionarios/<cpf>', methods=['PUT'])
-def update_funcionario(cpf):
+@app.get('/api/funcionarios/<cpf>')
+def update_employee(cpf):
     data = request.get_json()
     fields_to_update = {key: value for key, value in data.items() if key == 'nome'}
     if not fields_to_update:
-        return create_response('Nenhum dado enviado para atualização!', 400)
+        return create_response(NO_UPDATE_DATA, HTTPStatus.BAD_REQUEST)
 
     updated = collection.update_one({'cpf': cpf}, {'$set': fields_to_update})
     if updated.matched_count:
-        return create_response('Funcionário atualizado com sucesso!', 200)
-    return create_response('Funcionário não encontrado!', 404)
+        return create_response(EMPLOYEE_UPDATED, HTTPStatus.OK)
+    return create_response(EMPLOYEE_NOT_FOUND, HTTPStatus.NOT_FOUND)
 
 
-@app.route('/api/funcionarios/<cpf>/<asset>', methods=['PUT'])
+@app.put('/api/funcionarios/<cpf>/<asset>')
 def update_asset(cpf, asset):
     error = validate_asset(asset)
     if error:
@@ -111,11 +72,11 @@ def update_asset(cpf, asset):
     fields_to_update = {f"{asset}.{key}": value for key, value in data.items()}
     updated = collection.update_one({'cpf': cpf}, {'$set': fields_to_update})
     if updated.matched_count:
-        return create_response(f'{asset} atualizado com sucesso!', 200)
-    return create_response('Funcionário não encontrado!', 404)
+        return create_response(status=HTTPStatus.OK, message=None)
+    return create_response(EMPLOYEE_NOT_FOUND, HTTPStatus.NOT_FOUND)
 
 
-@app.route('/api/funcionarios/<cpf>/<asset>', methods=['DELETE'])
+@app.delete('/api/funcionarios/<cpf>/<asset>')
 def delete_asset(cpf, asset):
     error = validate_asset(asset)
     if error:
@@ -124,25 +85,23 @@ def delete_asset(cpf, asset):
     fields_to_update = {f"{asset}.{field}": None for field in ['modelo', 'tag', 'versao', 'caracteristicas']}
     updated = collection.update_one({'cpf': cpf}, {'$set': fields_to_update})
     if updated.matched_count:
-        return create_response(f'{asset} removido com sucesso!', 200)
-    return create_response('Funcionário não encontrado!', 404)
+        return create_response(ASSET_REMOVED.format(asset), HTTPStatus.OK)
+    return create_response(EMPLOYEE_NOT_FOUND, HTTPStatus.NOT_FOUND)
 
 
-@app.route('/api/funcionarios/<cpf>', methods=['DELETE'])
-def delete_funcionario(cpf):
-    funcionario = collection.find_one({'cpf': cpf})
-    if funcionario:
-        ativos = ['notebook', 'monitor1', 'monitor2', 'teclado', 'mouse', 'nobreak', 'desktop', 'headset', 'celular',
-                  'acessorios']
-        for ativo in ativos:
-            if funcionario.get(ativo):
-                if isinstance(funcionario[ativo], dict) and any(funcionario[ativo].values()):
-                    return create_response('Funcionário possui ativos e não pode ser excluído!', 400)
-                elif funcionario[ativo] is not None:
-                    return create_response('Funcionário possui ativos e não pode ser excluído!', 400)
+@app.delete('/api/funcionarios/<cpf>')
+def delete_employee(cpf):
+    employee = collection.find_one({'cpf': cpf})
+    if employee:
+        for asset in VALID_ASSETS:
+            if employee.get(asset):
+                if isinstance(employee[asset], dict) and any(employee[asset].values()):
+                    return create_response(EMPLOYEE_HAS_ASSETS, HTTPStatus.BAD_REQUEST)
+                elif employee[asset] is not None:
+                    return create_response(EMPLOYEE_HAS_ASSETS, HTTPStatus.BAD_REQUEST)
         collection.delete_one({'cpf': cpf})
-        return create_response('Funcionário excluído com sucesso!', 200)
-    return create_response('Funcionário não encontrado!', 404)
+        return create_response(EMPLOYEE_DELETED, HTTPStatus.OK)
+    return create_response(EMPLOYEE_NOT_FOUND, HTTPStatus.NOT_FOUND)
 
 
 if __name__ == '__main__':
