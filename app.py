@@ -79,6 +79,7 @@ def update_asset(cpf, asset):
 @app.delete('/api/funcionarios/<cpf>/<asset>')
 def delete_asset(cpf, asset):
     error = validate_asset(asset)
+
     if error:
         return error
 
