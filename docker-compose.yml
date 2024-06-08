@@ -1,0 +1,21 @@
+version: '3.6'
+
+services:
+  mongodb:
+    image: mongo:latest
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_DATA_DIR=/data/db
+      - MONGO_LOG_DIR=/dev/null
+    networks:
+      - mongo_net
+    volumes:
+      - mongodb-data:/data/db
+
+volumes:
+  mongodb-data:
+
+networks:
+  mongo_net:
